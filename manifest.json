@@ -1,0 +1,9 @@
+{
+  "name": "HelmVR",
+  "version_number": "0.10.4",
+  "website_url": "https://github.com/Skeptic043/Sailwind-HelmVR",
+  "description": "Play Sailwind in VR. Grab and throw cargo, use winches, take the wheel and plot courses on the chart table.",
+  "dependencies": [
+    "BepInEx-BepInExPack-5.4.2305"
+  ]
+}
