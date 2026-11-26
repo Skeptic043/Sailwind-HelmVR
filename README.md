@@ -5,28 +5,34 @@ Play Sailwind in VR. Grab and throw cargo, use winches, take the wheel and plot 
 ## Requirements
 
 - A PC VR headset that runs SteamVR games, with SteamVR installed
-- [Rai Pal](https://github.com/Raicuparta/rai-pal/releases/latest), [UUVR](https://github.com/Raicuparta/uuvr)
+- [UUVR](https://github.com/Raicuparta/uuvr) (installed automatically when adding HelmVR in Mod Sync, or via Rai Pal)
 
 HelmVR builds on UUVR and requires it to run.
 
 ## Install
 
-1. Open Rai Pal, select Sailwind and install `UUVR` and optionally `Config Manager`. Rai Pal installs BepInEx 5 along with them.
+### Sailwind Mod Synchronizer (recommended)
+
+Install HelmVR through [Sailwind Mod Synchronizer](https://github.com/foxyv/SailwindModSynchronizer/releases/latest) by adding it to a ModPack. Mod Sync offers to install UUVR alongside it and sets up BepInEx 5 automatically.
+
+### Rai Pal (alternative)
+
+1. Open [Rai Pal](https://github.com/Raicuparta/rai-pal/releases/latest), select Sailwind and install `UUVR` and optionally `Config Manager`. Rai Pal installs BepInEx 5 along with them.
 2. Download and extract the [HelmVR ZIP](https://github.com/Skeptic043/Sailwind-HelmVR/releases/latest). Copy its `BepInEx/plugins/HelmVR` folder into Rai Pal's Sailwind plugins folder: `%APPDATA%\raicuparta\rai-pal\data\installed-mods\<number>\bepinex\BepInEx\plugins`. `<number>` is Rai Pal's ID for your Sailwind install, and there is usually only one.
 
 ## Launch
 
-Start SteamVR with your headset connected, then launch Sailwind from Rai Pal or Steam. The first loading screen is usually upside down, which is harmless.
+Start SteamVR with your headset connected, then launch your VR pack with `Play` in Mod Sync (or from Steam/Rai Pal if you installed UUVR with Rai Pal). The first loading screen is usually upside down, which is harmless.
 
-### Mod Sync and Rai Pal
+### Switching between VR and flatscreen
 
-Rai Pal and Sailwind Mod Synchronizer both load mods through `doorstop_config.ini` in your Sailwind folder, and each points it at its own copy of BepInEx. Starting Sailwind from Steam loads whichever one set the file last. Mod Sync sets it every time you press `Play`, so a Mod Sync launch always loads your Mod Sync pack along with the next Steam launch. To play in VR again afterwards, open Rai Pal and reinstall UUVR for Sailwind, then launch as above.
+When you use Mod Sync, launching a pack without UUVR, turning UUVR off in your pack, or pressing `Launch Vanilla` turns UUVR's VR setting back off so Sailwind opens on your monitor. Launching a pack with UUVR turns VR back on when the game starts.
 
-UUVR also turns on VR in Sailwind's game files, and that (currently) stays on after you go back to Mod Sync or the unmodded game. If Sailwind opens in your headset when you want to play on your monitor, run `Verify integrity of game files` in Sailwind's Steam properties.
+If you installed through Rai Pal instead, UUVR leaves VR turned on in Sailwind's game files after you close the game. If Sailwind opens in your headset when you want to play on your monitor, run `Verify integrity of game files` in Sailwind's Steam properties. Rai Pal and Mod Sync also share `doorstop_config.ini` in your Sailwind folder, so if you switch between them, launching from Mod Sync points Steam at Mod Sync until you reinstall UUVR in Rai Pal.
 
 ## Controls
 
-Button names are for Quest Touch controllers. If `A` and `X` act like `B` and `Y` on your controller, turn on `SwapFaceButtons` in Config Manager.
+Button names are for Quest Touch controllers. If `A` and `X` act like `B` and `Y` on your controller, turn on `SwapFaceButtons` in [BepInEx Configuration Manager](https://github.com/BepInEx/BepInEx.ConfigurationManager).
 
 | Action | Control |
 | --- | --- |
@@ -49,7 +55,7 @@ Grip a winch and use up and down on the joystick to raise/lower. Grip a wheel or
 
 ## Configuration
 
-Settings are in `BepInEx/config/com.skeptic043.sailwind.helmvr.cfg` after the first launch, or in game with Config Manager (`F5` in Rai Pal's Config Manager, or `F1` in [BepInEx Configuration Manager](https://github.com/BepInEx/BepInEx.ConfigurationManager)). Changes apply immediately. Below are the commonly changed settings. 
+Settings are in `BepInEx/config/com.skeptic043.sailwind.helmvr.cfg` after the first launch, or in game with [BepInEx Configuration Manager](https://github.com/BepInEx/BepInEx.ConfigurationManager) (`F1`, or `F5` in Rai Pal's Config Manager). Changes apply immediately. Below are the commonly changed settings. 
 
 | Setting | Default | Options |
 | --- | --- | --- |
@@ -88,7 +94,7 @@ No known incompatibilities. HelmVR has been tested alongside these mods:
 - Faint white vertical lines can show in the view in some locations
 - Some flickering occurs in one eye when looking at certain pieces of land
 - Some shading and shadows can show in one eye but not the other
-- After a Sailwind update, the game can crash while loading with UUVR. Delete `globalgamemanagers` and `globalgamemanagers.bak` from the `Sailwind_Data` folder, then run `Verify integrity of game files` in Steam
+- With Rai Pal, a Sailwind update can cause a crash while loading with UUVR. Delete `globalgamemanagers` and `globalgamemanagers.bak` from the `Sailwind_Data` folder, then run `Verify integrity of game files` in Steam (Mod Sync clears stale UUVR backups automatically on launch)
 
 ## Credits
 
