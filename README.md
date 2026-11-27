@@ -22,6 +22,8 @@ Install HelmVR through [Sailwind Mod Synchronizer](https://github.com/foxyv/Sail
 
 ## Launch
 
+Before launching, set the SteamVR advanced setting `Present Non-VR Applications on Theater Screen Upon Launch` to off. This prevents a SteamVR interface from getting stuck on screen when the game boots.
+
 Start SteamVR with your headset connected, then launch your VR pack with `Play` in Mod Sync (or from Steam/Rai Pal if you installed UUVR with Rai Pal). The first loading screen is usually upside down, which is harmless.
 
 ### Switching between VR and flatscreen
