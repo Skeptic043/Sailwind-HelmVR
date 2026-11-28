@@ -263,6 +263,8 @@ namespace HelmVR
         public Vector3 EyeWorldPosition { get; private set; }
         public Quaternion EyeWorldRotation { get; private set; } = Quaternion.identity;
         public Transform EyeTransform { get; private set; }
+        public Transform TrackingRootOverride { get; set; }
+        public Vector3 AppliedHeadOffset { get; private set; }
 
         private bool _hasCalibratedHead;
         private bool _configuredTrackingSpace;
@@ -311,6 +313,26 @@ namespace HelmVR
             }
         }
 
+        public Vector3 ComputeClampedHeadOffset(bool enableLeaning, float maxLeanDistance)
+        {
+            if (!enableLeaning || !HasHeadPose) return Vector3.zero;
+
+            Vector3 headOrigin = _hasCalibratedHead ? _calibratedHeadOrigin : Vector3.zero;
+            Vector3 raw = HeadLocalPosition - headOrigin;
+            if (maxLeanDistance > 0.001f)
+            {
+                Vector2 xz = new Vector2(raw.x, raw.z);
+                if (xz.sqrMagnitude > maxLeanDistance * maxLeanDistance)
+                {
+                    xz = xz.normalized * maxLeanDistance;
+                    raw.x = xz.x;
+                    raw.z = xz.y;
+                }
+                raw.y = Mathf.Clamp(raw.y, -0.8f, 0.8f);
+            }
+            return raw;
+        }
+
         public void RefreshWorldPoses()
         {
             UpdateHeadPose();
@@ -319,6 +341,7 @@ namespace HelmVR
             if (mainCam == null)
             {
                 EyeTransform = null;
+                AppliedHeadOffset = Vector3.zero;
                 return;
             }
 
@@ -329,18 +352,27 @@ namespace HelmVR
                 _hasCalibratedHead = true;
             }
 
-            Transform root = mainCam.transform;
+            Transform root = (TrackingRootOverride != null && TrackingRootOverride.gameObject.activeInHierarchy)
+                ? TrackingRootOverride
+                : mainCam.transform;
             EyeTransform = root;
-            Vector3 headOffset = _hasCalibratedHead ? _calibratedHeadOrigin : Vector3.zero;
 
-            EyeWorldPosition = root.TransformPoint(HeadLocalPosition - headOffset);
+            bool allowLean = Plugin.EnableHeadLeaningConfig.Value && !BoatCamera.on;
+            Vector3 appliedHead = ComputeClampedHeadOffset(allowLean, Plugin.MaxLeanDistanceConfig.Value);
+            AppliedHeadOffset = appliedHead;
+
+            EyeWorldPosition = root.TransformPoint(appliedHead);
             EyeWorldRotation = root.rotation * HeadLocalRotation;
 
-            Left.UpdateWorldPose(root, headOffset);
-            Right.UpdateWorldPose(root, headOffset);
+            // Keep hands aligned 1:1 with the rendered eyes whether head leaning is unclamped, clamped, or off.
+            Vector3 handOriginOffset = HasHeadPose
+                ? (HeadLocalPosition - appliedHead)
+                : (_hasCalibratedHead ? _calibratedHeadOrigin : Vector3.zero);
+            Left.UpdateWorldPose(root, handOriginOffset);
+            Right.UpdateWorldPose(root, handOriginOffset);
         }
 
-        private void UpdateHeadPose()
+        public void UpdateHeadPose()
         {
             InputDevice headDev = InputDevices.GetDeviceAtXRNode(XRNode.CenterEye);
             if (!headDev.isValid)

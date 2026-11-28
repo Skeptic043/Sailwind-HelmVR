@@ -60,8 +60,9 @@ namespace HelmVR
 
         private static bool IsBoatCameraInput(VrRigController rig, int mode)
         {
-            // The boat camera stays off in VR until the player binds a button or key to it.
-            return Plugin.BoatCameraKey.Check(mode)
+            // Keep Sailwind's native CameraMode keyboard key (C by default) working alongside any custom key or VR button.
+            return IsKeyboardKey(InputName.CameraMode, mode)
+                || Plugin.BoatCameraKey.Check(mode)
                 || ControllerButtons.Check(Plugin.BoatCameraButtonConfig.Value, rig.LeftHand, rig.RightHand, mode);
         }
 
@@ -70,8 +71,8 @@ namespace HelmVR
             VrRigController rig = VrRigController.Instance;
             if (rig == null || !rig.IsVrActive) return Vector2.zero;
 
-            // Freeze locomotion while gripping a winch, helm/tiller, or bilge pump (matches vanilla Sailwind).
-            if (rig.HandInteractor.IsAnyHandGrippingAnyRotary()) return Vector2.zero;
+            // Freeze locomotion while gripping a winch, helm/tiller, bilge pump, or actively nudging with Dizzy.Nudge.
+            if (rig.HandInteractor.IsAnyHandGrippingAnyRotary() || VrDizzyCompat.IsVrNudgeActive) return Vector2.zero;
 
             Vector2 raw = rig.LeftHand.Stick;
             if (raw.magnitude < StickDeadzone) return Vector2.zero;
@@ -192,10 +193,10 @@ namespace HelmVR
                     return false;
                 case InputName.Jump:
                     bool rightOnWinch = rig.HandInteractor.IsHandGrippingKind(false, RotaryKind.Winch);
-                    __result = (!rightOnWinch && rig.RightHand.BottomFacePressed) || IsKeyboardKey(inputName, 0);
+                    __result = (!rightOnWinch && !VrDizzyCompat.IsVrNudgeActive && rig.RightHand.BottomFacePressed) || IsKeyboardKey(inputName, 0);
                     return false;
                 case InputName.Crouch:
-                    __result = rig.RightHand.StickClickPressed || IsKeyboardKey(inputName, 0);
+                    __result = (!VrDizzyCompat.IsVrNudgeActive && rig.RightHand.StickClickPressed) || IsKeyboardKey(inputName, 0);
                     return false;
                 case InputName.Run:
                     __result = _sprintToggled || IsKeyboardKey(inputName, 0);
@@ -233,11 +234,11 @@ namespace HelmVR
                     return false;
                 case InputName.Jump:
                     bool rightOnWinchD = rig.HandInteractor.IsHandGrippingKind(false, RotaryKind.Winch);
-                    __result = (!rightOnWinchD && rig.RightHand.BottomFaceDown) || IsKeyboardKey(inputName, 1);
+                    __result = (!rightOnWinchD && !VrDizzyCompat.IsVrNudgeActive && rig.RightHand.BottomFaceDown) || IsKeyboardKey(inputName, 1);
                     return false;
                 case InputName.Crouch:
                     // Sailwind's PlayerCrouching toggles crouch on GetKeyDown(InputName.Crouch).
-                    __result = rig.RightHand.StickClickDown || IsKeyboardKey(inputName, 1);
+                    __result = (!VrDizzyCompat.IsVrNudgeActive && rig.RightHand.StickClickDown) || IsKeyboardKey(inputName, 1);
                     return false;
                 case InputName.Run:
                     __result = rig.LeftHand.StickClickDown || IsKeyboardKey(inputName, 1);
@@ -281,6 +282,10 @@ namespace HelmVR
                     return false;
                 case InputName.Inventory:
                     __result = rig.LeftHand.BottomFaceUp || IsKeyboardKey(inputName, 2);
+                    return false;
+                case InputName.PickUp:
+                    // ShipyardButton.ExtraLateUpdate clears clickHeldButton on MouseButtonUp(0) or GetKeyUp(PickUp).
+                    __result = rig.RightHand.TriggerUp || rig.LeftHand.TriggerUp || IsKeyboardKey(inputName, 2);
                     return false;
                 default:
                     __result = IsKeyboardKey(inputName, 2);

@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.Reflection;
 using cakeslice;
 using HarmonyLib;
@@ -7,6 +8,7 @@ using UnityEngine.XR;
 
 namespace HelmVR
 {
+    [DefaultExecutionOrder(50)]
     internal sealed class VrRigController : MonoBehaviour
     {
         private const float SmoothTurnDeadzone = 0.2f;
@@ -34,6 +36,7 @@ namespace HelmVR
 
         private readonly XrInputReader _xr = new XrInputReader();
         private readonly HandVisuals _hands = new HandVisuals();
+        private readonly ComfortVignette _vignette = new ComfortVignette();
 
         internal VrHandInteractor HandInteractor { get; private set; }
 
@@ -41,6 +44,7 @@ namespace HelmVR
         private bool _dumpedGameplayDiagnostics;
         private bool _loggedStandby;
         private bool _snapLatched;
+        private bool _isSmoothTurningThisFrame;
 
         private HeadBob _headBob;
         private PlayerCrouching _crouching;
@@ -48,6 +52,7 @@ namespace HelmVR
         private OutlineEffect _mainOutline;
         private OutlineEffect _uiOutline;
         private StartMenu _startMenu;
+        private SleepUI _sleepUi;
         private Transform _needsUiAnchor;
         private Transform _missionUiAnchor;
         private bool _savedAnchorBaselines;
@@ -65,6 +70,20 @@ namespace HelmVR
         private Camera _fadeCamera;
         private OVRScreenFade _screenFade;
         private float _nextSceneLookupTime;
+
+        // UUVR RelativeMatrix child camera hierarchy (MainCamera/UICamera -> VrCameraOffset -> VrChildCamera)
+        private Camera _uuvrCamOwner;
+        private Transform _uuvrOffsetTransform;
+        private Transform _uuvrChildCamTransform;
+        private Camera _uiUuvrCamOwner;
+        private Transform _uiUuvrChildCamTransform;
+
+        // Sleep 3D world-culling state (restored immediately on wake, pause menu, scene load, or disable)
+        private Camera _sleepCulledCamera;
+        private int _savedSleepCullMask;
+        private CameraClearFlags _savedSleepClearFlags;
+        private Color _savedSleepBgColor;
+        private readonly List<Behaviour> _disabledSleepEffects = new List<Behaviour>();
 
         private const float AutoRecenterDelaySeconds = 1f;
         private float _autoRecenterTime = -1f;
@@ -95,6 +114,8 @@ namespace HelmVR
         private static readonly FieldInfo StartMenuConfirmQuitUi = AccessTools.Field(typeof(StartMenu), "confirmQuitUI");
         private static readonly FieldInfo ScreenFadeRendererField = AccessTools.Field(typeof(OVRScreenFade), "fadeRenderer");
         private static readonly FieldInfo ScreenFadeMaterialField = AccessTools.Field(typeof(OVRScreenFade), "fadeMaterial");
+        private static readonly FieldInfo SleepUiParticlesField = AccessTools.Field(typeof(SleepUI), "particles");
+        private static readonly FieldInfo SleepUiRecoveryParticlesField = AccessTools.Field(typeof(SleepUI), "recoveryParticles");
 
         private void Awake()
         {
@@ -107,13 +128,18 @@ namespace HelmVR
         private void OnEnable()
         {
             SceneManager.sceneLoaded += OnSceneLoaded;
+            Application.onBeforeRender += OnBeforeRender;
         }
 
         private void OnDisable()
         {
             SceneManager.sceneLoaded -= OnSceneLoaded;
+            Application.onBeforeRender -= OnBeforeRender;
+            RestoreSleepCulledCamera();
+            ResetHeadLeanTransform();
             HandInteractor?.RestoreDesktopPointer();
             _hands.Destroy();
+            _vignette.Destroy();
             if (_blackoutDome != null)
             {
                 Destroy(_blackoutDome);
@@ -126,12 +152,20 @@ namespace HelmVR
         {
             if (mode == LoadSceneMode.Single)
             {
+                RestoreSleepCulledCamera();
                 _headBob = null;
                 _crouching = null;
                 _uiCamera = null;
                 _mainOutline = null;
                 _uiOutline = null;
                 _startMenu = null;
+                _sleepUi = null;
+                _uuvrCamOwner = null;
+                _uuvrOffsetTransform = null;
+                _uuvrChildCamTransform = null;
+                _uiUuvrCamOwner = null;
+                _uiUuvrChildCamTransform = null;
+                _xr.TrackingRootOverride = null;
                 _needsUiAnchor = null;
                 _missionUiAnchor = null;
                 _savedAnchorBaselines = false;
@@ -143,6 +177,7 @@ namespace HelmVR
                 _screenFade = null;
                 _nextSceneLookupTime = 0f;
                 _autoRecenterTime = Time.unscaledTime + AutoRecenterDelaySeconds;
+                _vignette.HideImmediate();
                 MenuPointerPatches.ResetVisualState();
                 HandInteractor?.ResetSceneReferences();
             }
@@ -156,8 +191,11 @@ namespace HelmVR
                 if (_vrActive)
                 {
                     _vrActive = false;
+                    RestoreSleepCulledCamera();
+                    ResetHeadLeanTransform();
                     HandInteractor?.RestoreDesktopPointer();
                     _hands.Destroy();
+                    _vignette.Destroy();
                     MenuPointerPatches.ResetVisualState();
                 }
                 else if (!_loggedStandby && Time.unscaledTime > 5f)
@@ -207,7 +245,6 @@ namespace HelmVR
             }
 
             ApplyTurning();
-            HandInteractor.Update();
         }
 
         private void LateUpdate()
@@ -215,14 +252,19 @@ namespace HelmVR
             if (!_vrActive) return;
 
             ApplyHeightCalibration();
+            ResolveUuvrCameraChildren(MainCamera);
 
-            // Refresh world hand poses after boat motion, PlayerControllerMirror, and height updates.
+            // Refresh world hand poses after PlayerControllerMirror moves the player with the boat,
+            // then run HandInteractor so raycasts and visual lasers use the exact same boat-synced position.
             _xr.RefreshWorldPoses();
+            ApplyHeadLean();
             SyncMouthColliderToEye();
             SyncNeedsUiDistance();
 
+            HandInteractor.Update();
             HandInteractor.LateUpdate();
             SyncSleepBlackoutDome();
+            UpdateComfortVignette();
             // Holding B shows the aim laser, or Y when B is the pause button.
             ControllerButton laserButton = Plugin.PauseButtonConfig.Value == ControllerButton.B ? ControllerButton.Y : ControllerButton.B;
             bool holdAimLaser = ControllerButtons.Check(laserButton, _xr.Left, _xr.Right, 0);
@@ -231,6 +273,72 @@ namespace HelmVR
             if (Plugin.HideFlatCrosshairConfig.Value && Refs.mouseCrosshair != null && Refs.mouseCrosshair.activeSelf)
             {
                 Refs.mouseCrosshair.SetActive(false);
+            }
+        }
+
+        private void OnBeforeRender()
+        {
+            if (!_vrActive) return;
+            ResolveUuvrCameraChildren(MainCamera);
+            if (_uuvrChildCamTransform == null && _uiUuvrChildCamTransform == null) return;
+
+            _xr.UpdateHeadPose();
+            bool allowLean = Plugin.EnableHeadLeaningConfig.Value && !BoatCamera.on;
+            Vector3 offset = _xr.ComputeClampedHeadOffset(allowLean, Plugin.MaxLeanDistanceConfig.Value);
+            if (_uuvrChildCamTransform != null) _uuvrChildCamTransform.localPosition = offset;
+            if (_uiUuvrChildCamTransform != null) _uiUuvrChildCamTransform.localPosition = offset;
+        }
+
+        private void ResolveUuvrCameraChildren(Camera mainCam)
+        {
+            if (mainCam == null)
+            {
+                _uuvrCamOwner = null;
+                _uuvrOffsetTransform = null;
+                _uuvrChildCamTransform = null;
+                _xr.TrackingRootOverride = null;
+            }
+            else if (mainCam != _uuvrCamOwner || _uuvrChildCamTransform == null || _uuvrOffsetTransform == null)
+            {
+                _uuvrCamOwner = mainCam;
+                _uuvrOffsetTransform = mainCam.transform.Find("VrCameraOffset");
+                _uuvrChildCamTransform = _uuvrOffsetTransform != null
+                    ? _uuvrOffsetTransform.Find("VrChildCamera")
+                    : mainCam.transform.Find("VrChildCamera");
+                _xr.TrackingRootOverride = _uuvrOffsetTransform;
+            }
+
+            if (_uiCamera == null)
+            {
+                _uiUuvrCamOwner = null;
+                _uiUuvrChildCamTransform = null;
+            }
+            else if (_uiCamera != _uiUuvrCamOwner || _uiUuvrChildCamTransform == null)
+            {
+                _uiUuvrCamOwner = _uiCamera;
+                Transform uiOffset = _uiCamera.transform.Find("VrCameraOffset");
+                _uiUuvrChildCamTransform = uiOffset != null
+                    ? uiOffset.Find("VrChildCamera")
+                    : _uiCamera.transform.Find("VrChildCamera");
+            }
+        }
+
+        private void ApplyHeadLean()
+        {
+            Vector3 offset = _xr.AppliedHeadOffset;
+            if (_uuvrChildCamTransform != null) _uuvrChildCamTransform.localPosition = offset;
+            if (_uiUuvrChildCamTransform != null) _uiUuvrChildCamTransform.localPosition = offset;
+        }
+
+        private void ResetHeadLeanTransform()
+        {
+            if (_uuvrChildCamTransform != null)
+            {
+                _uuvrChildCamTransform.localPosition = Vector3.zero;
+            }
+            if (_uiUuvrChildCamTransform != null)
+            {
+                _uiUuvrChildCamTransform.localPosition = Vector3.zero;
             }
         }
 
@@ -346,8 +454,13 @@ namespace HelmVR
                 _startMenu = FindObjectOfType<StartMenu>();
             }
 
+            if (_sleepUi == null)
+            {
+                _sleepUi = FindObjectOfType<SleepUI>();
+            }
+
             bool allFound = _headBob != null && _uiCamera != null && _needsUiAnchor != null && _missionUiAnchor != null
-                && _mainOutline != null && _uiOutline != null && _startMenu != null;
+                && _mainOutline != null && _uiOutline != null && _startMenu != null && _sleepUi != null;
             _nextSceneLookupTime = allFound ? 0f : Time.unscaledTime + SceneLookupRetrySeconds;
         }
 
@@ -505,6 +618,17 @@ namespace HelmVR
 
         private void SyncSleepBlackoutDome()
         {
+            // Keep trackingSpace horizon-level in LateUpdate (after boat physics) while in bed/sleeping
+            // so wave pitch/roll at 16x speed does not make the sleep bar bounce up and down in VR.
+            if (Plugin.ComfortSleepHorizonConfig.Value
+                && (GameState.inBed != null || GameState.sleeping)
+                && Sleep.instance != null
+                && Sleep.instance.trackingSpace != null)
+            {
+                Vector3 e = Sleep.instance.trackingSpace.eulerAngles;
+                Sleep.instance.trackingSpace.eulerAngles = new Vector3(0f, e.y, 0f);
+            }
+
             Camera mainCam = MainCamera;
             if (mainCam != _fadeCamera)
             {
@@ -513,6 +637,32 @@ namespace HelmVR
             }
             OVRScreenFade fade = _screenFade;
             float alpha = fade != null ? fade.currentAlpha : 0f;
+
+            SyncSleepParticles();
+
+            bool shouldCullWorld = Plugin.OptimizeSleepRenderingConfig.Value
+                && GameState.sleeping
+                && GameState.eyesFullyClosed
+                && alpha >= 0.99f
+                && !GameState.inCursorMenu
+                && mainCam != null;
+
+            if (shouldCullWorld)
+            {
+                ApplySleepWorldCull(mainCam);
+                if (_blackoutDome != null && _blackoutDome.activeSelf)
+                {
+                    _blackoutDome.SetActive(false);
+                }
+                var fadeRendererCull = ScreenFadeRendererField?.GetValue(fade) as MeshRenderer;
+                if (fadeRendererCull != null && fadeRendererCull.enabled)
+                {
+                    fadeRendererCull.enabled = false;
+                }
+                return;
+            }
+
+            RestoreSleepCulledCamera();
 
             if (alpha <= 0.01f)
             {
@@ -584,6 +734,136 @@ namespace HelmVR
             _blackoutMat.color = new Color(0f, 0f, 0f, Mathf.Clamp01(alpha));
         }
 
+        private void ApplySleepWorldCull(Camera mainCam)
+        {
+            if (_sleepCulledCamera != null && _sleepCulledCamera != mainCam)
+            {
+                RestoreSleepCulledCamera();
+            }
+
+            if (_sleepCulledCamera == null)
+            {
+                _sleepCulledCamera = mainCam;
+                _savedSleepCullMask = mainCam.cullingMask;
+                _savedSleepClearFlags = mainCam.clearFlags;
+                _savedSleepBgColor = mainCam.backgroundColor;
+                _disabledSleepEffects.Clear();
+
+                Component[] comps = mainCam.GetComponents<Component>();
+                for (int i = 0; i < comps.Length; i++)
+                {
+                    if (!(comps[i] is Behaviour b) || !b.enabled) continue;
+                    string typeName = b.GetType().Name;
+                    if (typeName.IndexOf("AmplifyOcclusion", System.StringComparison.OrdinalIgnoreCase) >= 0
+                        || typeName.IndexOf("PostProcess", System.StringComparison.OrdinalIgnoreCase) >= 0
+                        || typeName.IndexOf("Bloom", System.StringComparison.OrdinalIgnoreCase) >= 0
+                        || typeName.IndexOf("Scattering", System.StringComparison.OrdinalIgnoreCase) >= 0
+                        || typeName.IndexOf("ToneMapping", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        b.enabled = false;
+                        _disabledSleepEffects.Add(b);
+                    }
+                }
+            }
+
+            if (mainCam.cullingMask != 0) mainCam.cullingMask = 0;
+            if (mainCam.clearFlags != CameraClearFlags.SolidColor) mainCam.clearFlags = CameraClearFlags.SolidColor;
+            if (mainCam.backgroundColor != Color.black) mainCam.backgroundColor = Color.black;
+        }
+
+        private void RestoreSleepCulledCamera()
+        {
+            if (_sleepCulledCamera != null)
+            {
+                _sleepCulledCamera.cullingMask = _savedSleepCullMask;
+                _sleepCulledCamera.clearFlags = _savedSleepClearFlags;
+                _sleepCulledCamera.backgroundColor = _savedSleepBgColor;
+                _sleepCulledCamera = null;
+            }
+
+            for (int i = 0; i < _disabledSleepEffects.Count; i++)
+            {
+                if (_disabledSleepEffects[i] != null)
+                {
+                    _disabledSleepEffects[i].enabled = true;
+                }
+            }
+            _disabledSleepEffects.Clear();
+        }
+
+        private void SyncSleepParticles()
+        {
+            if (_sleepUi == null) return;
+            if (!GameState.sleeping && !GameState.recovering) return;
+
+            bool show = Plugin.ShowSleepParticlesConfig.Value;
+            ApplySleepParticleVisibility(SleepUiParticlesField?.GetValue(_sleepUi) as ParticleSystem, show, GameState.sleeping && !GameState.recovering);
+            ApplySleepParticleVisibility(SleepUiRecoveryParticlesField?.GetValue(_sleepUi) as ParticleSystem, show, GameState.recovering);
+        }
+
+        private static void ApplySleepParticleVisibility(ParticleSystem ps, bool show, bool shouldEmit)
+        {
+            if (ps == null) return;
+            // Keep sleep particles in Local simulation space so 16x wave heave does not fling them vertically across view.
+            ParticleSystem.MainModule main = ps.main;
+            if (main.simulationSpace != ParticleSystemSimulationSpace.Local)
+            {
+                main.simulationSpace = ParticleSystemSimulationSpace.Local;
+            }
+
+            Renderer r = ps.GetComponent<Renderer>();
+            if (!show)
+            {
+                if (ps.isPlaying || ps.particleCount > 0)
+                {
+                    ps.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+                }
+                if (r != null && r.enabled) r.enabled = false;
+            }
+            else
+            {
+                if (r != null && !r.enabled) r.enabled = true;
+                if (shouldEmit && !ps.isPlaying)
+                {
+                    ParticleSystem.EmissionModule emission = ps.emission;
+                    emission.enabled = true;
+                    ps.Play(true);
+                }
+            }
+        }
+
+        private void UpdateComfortVignette()
+        {
+            float stillVal = Plugin.VignetteWhileStillConfig.Value;
+            float aboardVal = Plugin.VignetteWhileAboardConfig.Value;
+            float movingVal = Plugin.VignetteWhileMovingConfig.Value;
+
+            bool hide = !GameState.playing
+                || GameState.inCursorMenu
+                || GameState.sleeping
+                || BoatCamera.on
+                || VrShipyardPatches.IsInShipyard()
+                || (stillVal <= 0.001f && aboardVal <= 0.001f && movingVal <= 0.001f);
+
+            if (hide)
+            {
+                _vignette.Update(_xr.EyeWorldPosition, _xr.EyeWorldRotation, 0f, Time.unscaledDeltaTime);
+                return;
+            }
+
+            bool isAboard = GameState.currentBoat != null;
+            bool isStickMoving = GameState.inBed == null
+                && !VrChartingPatches.IsChartingActive()
+                && !VrDizzyCompat.IsVrNudgeActive
+                && !HandInteractor.IsAnyHandGrippingAnyRotary()
+                && _xr.Left.Stick.magnitude >= 0.12f;
+
+            bool isMovingOrTurning = isStickMoving || _isSmoothTurningThisFrame;
+            float baseVal = isAboard ? Mathf.Max(stillVal, aboardVal) : stillVal;
+            float target = isMovingOrTurning ? Mathf.Max(baseVal, movingVal) : baseVal;
+            _vignette.Update(_xr.EyeWorldPosition, _xr.EyeWorldRotation, target, Time.unscaledDeltaTime);
+        }
+
         private void SyncNeedsUiDistance()
         {
             float targetZ = Plugin.NeedsUiDistanceConfig.Value;
@@ -630,6 +910,7 @@ namespace HelmVR
 
         private void ApplyTurning()
         {
+            _isSmoothTurningThisFrame = false;
             // Allow turning while Inventory/Logbook are open, but block when paused, sleeping, in Shipyard, Charting, or gripping a rotary control.
             if (!GameState.playing
                 || Time.timeScale <= 0.01f
@@ -638,6 +919,7 @@ namespace HelmVR
                 || BoatCamera.on
                 || VrShipyardPatches.IsInShipyard()
                 || VrChartingPatches.IsChartingActive()
+                || VrDizzyCompat.IsVrNudgeActive
                 || HandInteractor.IsHandGrippingAnyRotary(false))
             {
                 _snapLatched = false;
@@ -671,6 +953,7 @@ namespace HelmVR
                 {
                     float scaled = (Mathf.Abs(stickX) - SmoothTurnDeadzone) / (1f - SmoothTurnDeadzone);
                     deltaYaw = Mathf.Sign(stickX) * scaled * Plugin.SmoothTurnSpeedConfig.Value * Time.deltaTime;
+                    _isSmoothTurningThisFrame = true;
                 }
             }
 

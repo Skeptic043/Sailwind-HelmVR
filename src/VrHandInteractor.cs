@@ -26,6 +26,13 @@ namespace HelmVR
         public Vector3 RayHitLocalPoint;
         public RaycastHit LastRaycastHit;
 
+        // Short hover-stability grace to prevent 1-frame flicker on small buttons or item edges on a moving boat.
+        public GoPointerButton StickyHoveredButton;
+        public float StickyHoveredTime;
+        public Vector3 StickyHitPoint;
+        public Transform StickyHitTransform;
+        public Vector3 StickyHitLocalPoint;
+
         public Vector3 GetResolvedRayHitPoint()
         {
             return RayHitTransform != null
@@ -36,8 +43,53 @@ namespace HelmVR
         // Held item grip offsets
         private static readonly FieldInfo FishingRodSpinnerField = AccessTools.Field(typeof(ShipItemFishingRod), "spinner");
         private PickupableItem _trackedHeld;
+        private bool _heldUsesPalmSnap;
         private Quaternion _heldRotOffset = Quaternion.identity;
         private Vector3 _heldPosOffset = new Vector3(0f, 0f, 0.04f);
+
+        private static readonly string[] ModToolKeywords =
+        {
+            "axe", "hatchet", "hammer", "knife", "rod", "spyglass", "telescope",
+            "compass", "sextant", "quadrant", "lantern", "lamp", "torch",
+            "broom", "mop", "brush", "oar", "paddle", "pipe", "mug", "cup",
+            "bottle", "flask", "chiplog", "tool", "wrench", "saw"
+        };
+
+        private static bool IsHandTool(PickupableItem item)
+        {
+            if (item == null) return false;
+            if (item is ShipItemHammer
+                || item is ShipItemAxe
+                || item is ShipItemKnife
+                || item is ShipItemFishingRod
+                || item is ShipItemSpyglass
+                || item is ShipItemCompass
+                || item is ShipItemQuadrant
+                || item is ShipItemChipLog
+                || item is ShipItemBroom
+                || item is ShipItemInkSet
+                || item is ShipItemPipe
+                || item is ShipItemLight
+                || item is ShipItemBottle
+                || item is ShipItemElixir
+                || item is ShipItemRandomElixir
+                || item is ShipItemOar
+                || item is MooringRopeLengthAdjuster)
+            {
+                return true;
+            }
+
+            // Automatically snap mod-added hand tools and instruments (axes, sextants, mugs, lanterns, etc.) into the palm.
+            if (!item.big && item.GetType().Assembly != typeof(ShipItem).Assembly)
+            {
+                string combined = (item.GetType().Name + " " + item.gameObject.name).ToLowerInvariant();
+                for (int i = 0; i < ModToolKeywords.Length; i++)
+                {
+                    if (combined.Contains(ModToolKeywords[i])) return true;
+                }
+            }
+            return false;
+        }
 
         public VrHandSlot(bool isLeft, HandState hand)
         {
@@ -54,55 +106,69 @@ namespace HelmVR
             if (held == null)
             {
                 _trackedHeld = null;
+                _heldUsesPalmSnap = false;
                 return;
             }
 
             if (held != _trackedHeld)
             {
                 _trackedHeld = held;
-                if (held.big)
+                if (held is ShipItemFishingRod)
                 {
-                    _heldPosOffset = new Vector3(0f, -0.05f, 0.45f);
-                    _heldRotOffset = Quaternion.Inverse(Hand.WorldRotation) * held.transform.rotation;
-                }
-                else if (held is ShipItemFishingRod)
-                {
-                    // Place fishing rod handle directly in the palm pointing forward.
+                    _heldUsesPalmSnap = true;
                     _heldPosOffset = new Vector3(0f, -0.03f, 0.06f);
                     _heldRotOffset = Quaternion.identity;
                 }
-                else if (held is ShipItemHammer)
+                else if (held is ShipItemHammer || held is ShipItemAxe)
                 {
-                    // Hold hammer upright and forward, ready to swing.
+                    _heldUsesPalmSnap = true;
                     _heldPosOffset = new Vector3(0f, 0.02f, 0.06f);
+                    _heldRotOffset = Quaternion.identity;
+                }
+                else if (!held.big && IsHandTool(held))
+                {
+                    // Hand-held tools and instruments snap into the palm in their natural usable orientation.
+                    _heldUsesPalmSnap = true;
+                    _heldPosOffset = new Vector3(0f, 0f, 0.05f);
                     _heldRotOffset = Quaternion.identity;
                 }
                 else
                 {
-                    // Canonical upright/forward in-hand pose for usable items (spyglass, compass, lantern, broom, bottles, food, charting kit).
-                    _heldPosOffset = new Vector3(0f, 0f, 0.05f);
-                    _heldRotOffset = Quaternion.identity;
+                    // General items and cargo stay grabbed in place (like vanilla) for precise placement,
+                    // falling back to a comfortable in-front-of-hand offset if pulled from a distant UI/inventory slot.
+                    _heldUsesPalmSnap = false;
+                    Vector3 worldDelta = held.transform.position - Hand.WorldPosition;
+                    if (worldDelta.sqrMagnitude <= 2.4f * 2.4f)
+                    {
+                        _heldPosOffset = Quaternion.Inverse(Hand.WorldRotation) * worldDelta;
+                        _heldRotOffset = Quaternion.Inverse(Hand.WorldRotation) * held.transform.rotation;
+                    }
+                    else
+                    {
+                        _heldPosOffset = held.big ? new Vector3(0f, -0.05f, 0.45f) : new Vector3(0f, 0f, 0.14f);
+                        _heldRotOffset = Quaternion.identity;
+                    }
                 }
             }
 
             if (!Hand.HasPose) return;
 
-            bool isTool = held is ShipItemHammer || held is ShipItemInkSet || held is ShipItemFishingRod;
+            bool skipSurfaceSnap = held is ShipItemInkSet || held is ShipItemFishingRod;
             // Like native GoPointer, a small item over any surface that allows placing (tables, shelves, crate lids)
             // sits on that surface until released. Only the hand's heading is kept so the item stands upright.
-            if (!held.big && !isTool && HoveredButton != null && HoveredButton.allowPlacingItems && HasRayHit)
+            if (!held.big && !skipSurfaceSnap && HoveredButton != null && HoveredButton.allowPlacingItems && HasRayHit)
             {
                 Vector3 flatForward = Vector3.ProjectOnPlane(Hand.AimForward, Vector3.up);
                 Quaternion heading = flatForward.sqrMagnitude > 0.0001f ? Quaternion.LookRotation(flatForward, Vector3.up) : Quaternion.identity;
                 held.transform.position = GetResolvedRayHitPoint() + Vector3.up * held.furniturePlaceHeight;
-                held.transform.rotation = heading * _heldRotOffset;
+                held.transform.rotation = heading * (_heldUsesPalmSnap ? _heldRotOffset : Quaternion.identity);
                 held.forceDisableRedOutline = true;
                 IsPlacing = true;
                 return;
             }
 
             held.forceDisableRedOutline = false;
-            Quaternion baseRot = held.big ? Hand.WorldRotation : Hand.AimRotation;
+            Quaternion baseRot = _heldUsesPalmSnap ? Hand.AimRotation : Hand.WorldRotation;
             Quaternion swingRot = Mathf.Abs(held.heldRotationOffset) > 0.01f
                 ? Quaternion.Euler(held.heldRotationOffset, 0f, 0f)
                 : Quaternion.identity;
@@ -241,6 +307,7 @@ namespace HelmVR
 
             UpdateHand(Left, Right);
             UpdateHand(Right, Left);
+            VrDizzyCompat.UpdateVrNudge(VrRigController.Instance, Left, Right);
         }
 
         public void LateUpdate()
@@ -416,7 +483,7 @@ namespace HelmVR
         private void HandleScrollInput(VrHandSlot slot)
         {
             VrRigController rig = VrRigController.Instance;
-            if (rig == null) return;
+            if (rig == null || VrDizzyCompat.IsVrNudgeActive) return;
 
             // Only drive scroll once per frame from the hand that holds a scrollable item (or right hand fallback).
             PickupableItem held = slot.HeldItem;
@@ -427,13 +494,29 @@ namespace HelmVR
             {
                 // Avoid double-scrolling if both hands hold items: right hand takes priority.
                 if (slot.IsLeft && Right.HeldItem != null) return;
-                float scrollSpeed = held is ShipItemFishingRod ? Plugin.FishingReelSpeedConfig.Value : 18f;
-                held.OnScroll(stickY * Time.deltaTime * scrollSpeed);
+                if (held is MooringRopeLengthAdjuster)
+                {
+                    held.OnScroll(ComputeMooringScrollInput(stickY));
+                }
+                else
+                {
+                    float scrollSpeed = held is ShipItemFishingRod ? Plugin.FishingReelSpeedConfig.Value : 18f;
+                    held.OnScroll(stickY * Time.deltaTime * scrollSpeed);
+                }
             }
             else if (slot.HoveredButton is MooringRopeLengthAdjuster ropeAdj)
             {
-                ropeAdj.OnScroll(stickY * Time.deltaTime * 18f);
+                ropeAdj.OnScroll(ComputeMooringScrollInput(stickY));
             }
+        }
+
+        private static float ComputeMooringScrollInput(float stickY)
+        {
+            // PickupableBoatMooringRope.ChangeRopeLength(input / 3f) squares its argument (change * |change|),
+            // so scale with sqrt(deltaTime) for framerate-independent, responsive mooring line adjustment.
+            const float targetSqrMetersPerSec = 45f;
+            float deltaSqr = Mathf.Abs(stickY) * targetSqrMetersPerSec * Time.deltaTime;
+            return Mathf.Sign(stickY) * 3f * Mathf.Sqrt(deltaSqr);
         }
 
         private void HandleInventoryGrip(VrHandSlot slot)
@@ -653,22 +736,115 @@ namespace HelmVR
                 return;
             }
 
-            // Priority 2: Short controller ray fallback.
+            // Priority 2: Short controller ray fallback (with a thin 1.8 cm SphereCast assist for small buttons on moving boats).
             float rayDist = Plugin.RayFallbackDistanceConfig.Value;
-            if (Physics.Raycast(new Ray(origin, forward), out RaycastHit hit, rayDist, InteractionLayerMask, QueryTriggerInteraction.Collide))
+            Ray aimRay = new Ray(origin, forward);
+            GoPointerButton rayCandidate = null;
+            RaycastHit rayHit = default(RaycastHit);
+            bool hasRayHit = false;
+
+            if (Physics.Raycast(aimRay, out RaycastHit directHit, rayDist, InteractionLayerMask, QueryTriggerInteraction.Collide))
             {
-                GoPointerButton candidate = ResolveEligibleButton(hit.collider, held);
-                if (candidate != null)
+                rayCandidate = ResolveEligibleButton(directHit.collider, held);
+                if (rayCandidate != null)
                 {
-                    slot.HoveredButton = candidate;
-                    slot.IsNearTarget = false;
-                    slot.HasRayHit = true;
-                    slot.RayHitPoint = hit.point;
-                    slot.RayHitTransform = hit.transform;
-                    slot.RayHitLocalPoint = hit.transform != null ? hit.transform.InverseTransformPoint(hit.point) : hit.point;
-                    slot.LastRaycastHit = hit;
+                    rayHit = directHit;
+                    hasRayHit = true;
                 }
             }
+
+            // If the center ray missed or hit a container/surface rather than a small child button (like Radio/Speaker buttons),
+            // check a thin 1.8 cm SphereCast so small controls remain easy to hit while sailing.
+            bool isSmallChildHit = hasRayHit && !(rayCandidate is PickupableItem) && rayCandidate.transform.parent != null
+                && rayCandidate.transform.parent.GetComponentInParent<PickupableItem>() != null;
+            if (!isSmallChildHit
+                && Physics.SphereCast(aimRay, 0.018f, out RaycastHit sphereHit, rayDist, InteractionLayerMask, QueryTriggerInteraction.Collide))
+            {
+                GoPointerButton sphereCandidate = ResolveEligibleButton(sphereHit.collider, held);
+                bool sphereIsSmallChild = sphereCandidate != null && !(sphereCandidate is PickupableItem) && sphereCandidate.transform.parent != null
+                    && sphereCandidate.transform.parent.GetComponentInParent<PickupableItem>() != null;
+                if (sphereCandidate != null && (!hasRayHit || (sphereIsSmallChild && sphereHit.distance <= rayHit.distance + 0.15f)))
+                {
+                    rayCandidate = sphereCandidate;
+                    rayHit = sphereHit;
+                    hasRayHit = true;
+                }
+            }
+
+            // Dizzy Clothesline: when holding a hangable item, check if the aim ray targets a spot along a clothesline.
+            if (held != null)
+            {
+                float currentDist = (hasRayHit && !VrDizzyCompat.IsClothesline(rayCandidate)) ? rayHit.distance : rayDist;
+                if (VrDizzyCompat.TryAimClothesline(aimRay, held, currentDist, out GoPointerButton clBtn, out Vector3 clPoint))
+                {
+                    slot.HoveredButton = clBtn;
+                    slot.IsNearTarget = false;
+                    slot.HasRayHit = true;
+                    slot.RayHitPoint = clPoint;
+                    slot.RayHitTransform = clBtn.transform;
+                    slot.RayHitLocalPoint = clBtn.transform.InverseTransformPoint(clPoint);
+                    RecordStickyHover(slot);
+                    return;
+                }
+            }
+
+            if (hasRayHit && rayCandidate != null)
+            {
+                // When aiming at the edge of a PickupableItem or small button, briefly hold it if a 1-frame micro-jitter
+                // slips onto a background surface behind it.
+                if (slot.StickyHoveredButton != null
+                    && slot.StickyHoveredButton != rayCandidate
+                    && slot.StickyHoveredButton.isActiveAndEnabled
+                    && !slot.StickyHoveredButton.unclickable
+                    && (Time.unscaledTime - slot.StickyHoveredTime) <= 0.065f
+                    && rayCandidate.allowPlacingItems
+                    && held == null)
+                {
+                    RestoreStickyHover(slot);
+                    return;
+                }
+
+                slot.HoveredButton = rayCandidate;
+                slot.IsNearTarget = false;
+                slot.HasRayHit = true;
+                slot.RayHitPoint = rayHit.point;
+                slot.RayHitTransform = rayHit.transform;
+                slot.RayHitLocalPoint = rayHit.transform != null ? rayHit.transform.InverseTransformPoint(rayHit.point) : rayHit.point;
+                slot.LastRaycastHit = rayHit;
+                RecordStickyHover(slot);
+                return;
+            }
+
+            if (slot.StickyHoveredButton != null
+                && slot.StickyHoveredButton.isActiveAndEnabled
+                && !slot.StickyHoveredButton.unclickable
+                && (Time.unscaledTime - slot.StickyHoveredTime) <= 0.065f)
+            {
+                RestoreStickyHover(slot);
+            }
+            else
+            {
+                slot.StickyHoveredButton = null;
+            }
+        }
+
+        private static void RecordStickyHover(VrHandSlot slot)
+        {
+            slot.StickyHoveredButton = slot.HoveredButton;
+            slot.StickyHoveredTime = Time.unscaledTime;
+            slot.StickyHitPoint = slot.RayHitPoint;
+            slot.StickyHitTransform = slot.RayHitTransform;
+            slot.StickyHitLocalPoint = slot.RayHitLocalPoint;
+        }
+
+        private static void RestoreStickyHover(VrHandSlot slot)
+        {
+            slot.HoveredButton = slot.StickyHoveredButton;
+            slot.IsNearTarget = false;
+            slot.HasRayHit = true;
+            slot.RayHitPoint = slot.StickyHitPoint;
+            slot.RayHitTransform = slot.StickyHitTransform;
+            slot.RayHitLocalPoint = slot.StickyHitLocalPoint;
         }
 
         // Only an upward-facing spot at or below the hand counts, so a shelf above the hand or a table's side never takes the item.
@@ -724,9 +900,11 @@ namespace HelmVR
                 }
 
                 // Native GoPointer.DoRaycast rule while holding an item: the held item's AllowOnItemClick decides
-                // (hammer nailing, knife slicing, lamp hooks, placing surfaces). Otherwise other items and beds are
-                // skipped, so a cup sitting on a table never wins over the table, while ordinary buttons stay usable.
+                // (hammer nailing, knife slicing, lamp hooks, placing surfaces). Also allow Dizzy Bundle Up targets
+                // so holding a piece of food or firewood can aim at another compatible piece.
                 if (heldItem.AllowOnItemClick(button)) return button;
+                if (heldItem is ShipItemHammer && shipItem != null && VrDizzyCompat.IsNudgeTarget(shipItem)) return button;
+                if (shipItem != null && VrDizzyCompat.CanBundleTarget(heldItem, shipItem)) return button;
                 if (shipItem != null || button.GetComponent<GPButtonBed>() != null) return null;
                 return button;
             }
@@ -748,6 +926,19 @@ namespace HelmVR
                         && held is ShipItem heldShip && !heldShip.big && heldShip.sold)
                     {
                         crateDrop.OnActivate(slot.Pointer);
+                        slot.Hand.SendHaptic(0.35f, 0.04f);
+                    }
+                    else if (slot.HoveredButton is ShipItemLampHook hook && hook.OnItemClick(held))
+                    {
+                        held.OnDrop();
+                        slot.Pointer.DropItem();
+                        slot.Hand.SendHaptic(0.35f, 0.04f);
+                    }
+                    else if (VrDizzyCompat.TryHangOnClothesline(slot.HoveredButton, held,
+                        new Ray(slot.Hand.WorldPosition, slot.Hand.AimForward), slot.HasRayHit, slot.GetResolvedRayHitPoint()))
+                    {
+                        held.OnDrop();
+                        slot.Pointer.DropItem();
                         slot.Hand.SendHaptic(0.35f, 0.04f);
                     }
                     else if (slot.IsPlacing)
@@ -862,7 +1053,31 @@ namespace HelmVR
                             return;
                         }
 
-                        if (slot.HoveredButton.OnItemClick(held))
+                        // Dizzy Bundle Up: pulling Trigger while holding food/firewood/hooks aimed at a compatible piece bundles them.
+                        if (VrDizzyCompat.TryBundleHeldOnto(held, slot.HoveredButton, slot.Pointer))
+                        {
+                            slot.Hand.SendHaptic(0.32f, 0.035f);
+                            return;
+                        }
+
+                        // Dizzy Clothesline: route Trigger-on-clothesline through our aim-point hang helper
+                        // so it hangs at the laser aim spot instead of the line center.
+                        if (VrDizzyCompat.IsClothesline(slot.HoveredButton))
+                        {
+                            if (VrDizzyCompat.TryHangOnClothesline(slot.HoveredButton, held,
+                                new Ray(slot.Hand.WorldPosition, slot.Hand.AimForward), slot.HasRayHit, slot.GetResolvedRayHitPoint()))
+                            {
+                                held.OnDrop();
+                                slot.Pointer.DropItem();
+                                slot.Hand.SendHaptic(0.35f, 0.04f);
+                            }
+                            return;
+                        }
+
+                        // Never hang a hammer on a lamp hook with Trigger (even with Hooks Hang More);
+                        // let Trigger fall through to ShipItemHammer.OnAltActivate so it nails/un-nails the hook.
+                        bool skipHookHang = held is ShipItemHammer && slot.HoveredButton is ShipItemLampHook;
+                        if (!skipHookHang && slot.HoveredButton.OnItemClick(held))
                         {
                             held.OnDrop();
                             slot.Pointer.DropItem();
@@ -877,6 +1092,24 @@ namespace HelmVR
                 }
                 else if (slot.HoveredButton != null)
                 {
+                    // Dizzy Bundle Up: pulling Trigger on food/firewood inside an open crate gathers loose matching items into a bundle.
+                    if (slot.HoveredButton is CrateInventoryButton crateGatherBtn)
+                    {
+                        ShipItem crateItem = GetCrateButtonItem(crateGatherBtn);
+                        if (VrDizzyCompat.TryGatherCrateItem(crateItem, slot.Pointer))
+                        {
+                            slot.Hand.SendHaptic(0.32f, 0.035f);
+                            return;
+                        }
+                    }
+
+                    // Dizzy Clothesline: pulling Trigger on an empty lamp hook starts/finishes/cancels a clothesline.
+                    if (VrDizzyCompat.TryTieClotheslineOnHook(slot.HoveredButton))
+                    {
+                        slot.Hand.SendHaptic(0.32f, 0.035f);
+                        return;
+                    }
+
                     PickupableItem pickup = slot.HoveredButton.GetComponent<PickupableItem>();
                     if (pickup != null)
                     {
@@ -885,6 +1118,11 @@ namespace HelmVR
                             && CargoStorageUI.instance != null && CargoStorageUI.instance.currentCarrier != null)
                         {
                             CargoStorageUI.instance.currentCarrier.InsertItem(shipItem);
+                        }
+                        else if (shipItem != null && VrDizzyCompat.TryGatherLooseItem(shipItem, slot.Pointer))
+                        {
+                            slot.Hand.SendHaptic(0.32f, 0.035f);
+                            return;
                         }
                         else
                         {
@@ -911,6 +1149,15 @@ namespace HelmVR
                             UISoundPlayer.instance.PlayUISound(UISounds.winchClick, 0.33f, 0.85f);
                         }
                         slot.Hand.SendHaptic(0.3f, 0.035f);
+                    }
+                }
+                else
+                {
+                    // Pulling Trigger into empty space closes open crate inventories so they cannot get stuck open.
+                    if (CrateInventoryUI.instance != null && CrateInventoryUI.instance.showingUI)
+                    {
+                        CrateInventoryUI.instance.HideInventory(true);
+                        slot.Hand.SendHaptic(0.2f, 0.025f);
                     }
                 }
             }

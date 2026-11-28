@@ -36,6 +36,25 @@ namespace HelmVR
                 return true;
             }
 
+            ApplyVrBoatCameraControls(rig, allowPan: true);
+            return false;
+        }
+
+        [HarmonyPatch(typeof(BoatCamera), "Update")]
+        [HarmonyPostfix]
+        private static void BoatCameraUpdatePostfix()
+        {
+            VrRigController rig = VrRigController.Instance;
+            if (rig == null || !rig.IsVrActive || !BoatCamera.on || BoatCamera.instance == null || IsInShipyard())
+            {
+                return;
+            }
+
+            ApplyVrBoatCameraControls(rig, allowPan: false);
+        }
+
+        private static void ApplyVrBoatCameraControls(VrRigController rig, bool allowPan)
+        {
             // Keep desktop MouseLook disabled in VR so mouse movement never fights the headset.
             Transform yawPivot = BoatCamera.instance.transform;
             MouseLook yawMl = yawPivot.GetComponent<MouseLook>();
@@ -66,7 +85,7 @@ namespace HelmVR
                 pitchPivot.localEulerAngles = new Vector3(pitch, e.y, 0f);
             }
 
-            // Left thumbstick: zoom in/out (Y) and pan along the boat (X).
+            // Left thumbstick: zoom in/out (Y) and pan along the boat (X in Shipyard).
             Vector2 leftStick = rig.LeftHand.Stick;
             if (BoatCamZoomField != null && Mathf.Abs(leftStick.y) > StickDeadzone)
             {
@@ -75,7 +94,7 @@ namespace HelmVR
                 BoatCamZoomField.SetValue(BoatCamera.instance, zoom);
             }
 
-            if (BoatCamOffsetField != null && Mathf.Abs(leftStick.x) > StickDeadzone)
+            if (allowPan && BoatCamOffsetField != null && Mathf.Abs(leftStick.x) > StickDeadzone)
             {
                 Vector3 offset = (Vector3)BoatCamOffsetField.GetValue(BoatCamera.instance);
                 offset += yawPivot.right * (leftStick.x * PanSpeed * dt);
@@ -83,8 +102,6 @@ namespace HelmVR
                 offset.z = Mathf.Clamp(offset.z, -25f, 25f);
                 BoatCamOffsetField.SetValue(BoatCamera.instance, offset);
             }
-
-            return false;
         }
 
         [HarmonyPatch(typeof(BoatCamera), nameof(BoatCamera.SwitchOff))]

@@ -174,6 +174,10 @@ namespace HelmVR
             {
                 ActiveByControl.Remove(session.Control);
             }
+            if (UISoundPlayer.instance != null)
+            {
+                UISoundPlayer.instance.PlayUISound(UISounds.winchClick, 0.33f, 0.85f);
+            }
             session.Hand?.SendHaptic(0.18f, 0.025f);
         }
 

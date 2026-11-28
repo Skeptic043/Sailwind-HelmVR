@@ -219,8 +219,19 @@ namespace HelmVR
             LastPointedAtButtonField?.SetValue(__instance, pointedAt);
 
             bool clicked = activeHand.TriggerDown || Input.GetMouseButtonDown(0) || GameInput.GetKeyDown(InputName.PickUp);
-            if (!clicked || pointedAt == null)
+            if (!clicked)
             {
+                return false;
+            }
+
+            if (pointedAt == null)
+            {
+                // Pulling Trigger while pointing away from any UI closes the open Inventory/Needs panel.
+                if (activeHand.TriggerDown && !LastRayHitMenu && PlayerNeedsUI.instance != null && PlayerNeedsUI.instance.IsActive())
+                {
+                    PlayerNeedsUI.instance.CloseNeedsUI();
+                    activeHand.SendHaptic(0.2f, 0.025f);
+                }
                 return false;
             }
 

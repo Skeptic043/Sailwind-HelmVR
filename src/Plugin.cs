@@ -26,7 +26,7 @@ namespace HelmVR
     {
         public const string Guid = "com.skeptic043.sailwind.helmvr";
         public const string PluginName = "HelmVR";
-        public const string Version = "0.10.4";
+        public const string Version = "0.11.0";
         private const string UuvrGuid = "raicuparta.uuvr-legacy";
 
         internal static ManualLogSource Log { get; private set; }
@@ -46,10 +46,17 @@ namespace HelmVR
 
         // Movement & Comfort
         internal static ConfigEntry<bool> HeadOrientedMovementConfig { get; private set; }
+        internal static ConfigEntry<bool> EnableHeadLeaningConfig { get; private set; }
+        internal static ConfigEntry<float> MaxLeanDistanceConfig { get; private set; }
         internal static ConfigEntry<float> BaseEyeHeightConfig { get; private set; }
         internal static ConfigEntry<float> HeightOffsetConfig { get; private set; }
         internal static ConfigEntry<bool> DisableHeadBobConfig { get; private set; }
         internal static ConfigEntry<bool> ComfortSleepHorizonConfig { get; private set; }
+        internal static ConfigEntry<bool> OptimizeSleepRenderingConfig { get; private set; }
+        internal static ConfigEntry<bool> ShowSleepParticlesConfig { get; private set; }
+        internal static ConfigEntry<float> VignetteWhileMovingConfig { get; private set; }
+        internal static ConfigEntry<float> VignetteWhileAboardConfig { get; private set; }
+        internal static ConfigEntry<float> VignetteWhileStillConfig { get; private set; }
 
         // Controls & Motion Interaction
         internal static ConfigEntry<bool> EnableMotionControlsConfig { get; private set; }
@@ -92,11 +99,11 @@ namespace HelmVR
             PauseButtonConfig = Config.Bind(controls, "PauseButton", ControllerButton.Y,
                 "Controller button that opens and closes the pause menu. The recessed left menu button is kept by SteamVR on Quest controllers.");
             BoatCameraButtonConfig = Config.Bind(controls, "BoatCameraButton", ControllerButton.None,
-                "Controller button that toggles Sailwind's third-person boat camera. The boat camera stays off in VR while this and BoatCameraKey are both unset.");
+                "Controller button that toggles Sailwind's third-person boat camera. Leave as None to avoid accidental toggles on your controllers.");
             BoatCameraKey = new ShortcutSetting(Config, controls, "BoatCameraKey",
-                "Keyboard shortcut that toggles the third-person boat camera.");
+                "Keyboard shortcut that toggles the third-person boat camera.", "C");
             RecenterKey = new ShortcutSetting(Config, controls, "RecenterKey",
-                "Keyboard shortcut that recenters your view and menus, like clicking both sticks.");
+                "Keyboard shortcut that recenters your view and menus, like clicking both sticks.", "F9");
             SwapFaceButtonsConfig = Config.Bind(controls, "SwapFaceButtons", false,
                 "Swap the bottom (A/X) and top (B/Y) face buttons. Turn on if your controller reports them the other way round, for example if the bottom left button opens the pause menu instead of the inventory.");
 
@@ -136,6 +143,20 @@ namespace HelmVR
                 true,
                 "Move in the direction your headset is facing when pushing the left thumbstick.");
 
+            EnableHeadLeaningConfig = Config.Bind(
+                "3. Movement and Comfort",
+                "EnableHeadLeaning",
+                true,
+                "Allow 6DoF head leaning independent of the character body (so leaning over the gunwale does not drag the boat with you).");
+
+            MaxLeanDistanceConfig = Config.Bind(
+                "3. Movement and Comfort",
+                "MaxLeanDistance",
+                0.75f,
+                new ConfigDescription(
+                    "Maximum horizontal head-lean distance in meters from your body anchor (0 = unlimited).",
+                    new AcceptableValueRange<float>(0f, 2.0f)));
+
             BaseEyeHeightConfig = Config.Bind(
                 "3. Movement and Comfort",
                 "BaseEyeHeight",
@@ -163,6 +184,42 @@ namespace HelmVR
                 "ComfortSleepHorizon",
                 true,
                 "Keep the VR horizon level when lying down in a bed.");
+
+            OptimizeSleepRenderingConfig = Config.Bind(
+                "3. Movement and Comfort",
+                "OptimizeSleepRendering",
+                true,
+                "Skip 3D world rendering while your eyes are fully closed during sleep to improve VR performance at 16x speed (keeps the sleep bar visible).");
+
+            ShowSleepParticlesConfig = Config.Bind(
+                "3. Movement and Comfort",
+                "ShowSleepParticles",
+                true,
+                "Show floating sleep particles during sleep blackout. Turn off to save extra performance during 16x sleep.");
+
+            VignetteWhileMovingConfig = Config.Bind(
+                "3. Movement and Comfort",
+                "VignetteWhileMoving",
+                0f,
+                new ConfigDescription(
+                    "Peripheral comfort vignette strength while walking, swimming, or smooth-turning (0 = off).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+
+            VignetteWhileAboardConfig = Config.Bind(
+                "3. Movement and Comfort",
+                "VignetteWhileAboard",
+                0f,
+                new ConfigDescription(
+                    "Peripheral comfort vignette strength whenever you are aboard a ship (0 = off).",
+                    new AcceptableValueRange<float>(0f, 1f)));
+
+            VignetteWhileStillConfig = Config.Bind(
+                "3. Movement and Comfort",
+                "VignetteWhileStill",
+                0f,
+                new ConfigDescription(
+                    "Peripheral comfort vignette strength while standing still anywhere (0 = off).",
+                    new AcceptableValueRange<float>(0f, 1f)));
 
             EnableMotionControlsConfig = Config.Bind(
                 "4. Hands",

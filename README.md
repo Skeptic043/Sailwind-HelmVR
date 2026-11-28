@@ -28,9 +28,9 @@ Start SteamVR with your headset connected, then launch your VR pack with `Play` 
 
 ### Switching between VR and flatscreen
 
-When you use Mod Sync, launching a pack without UUVR, turning UUVR off in your pack, or pressing `Launch Vanilla` turns UUVR's VR setting back off so Sailwind opens on your monitor. Launching a pack with UUVR turns VR back on when the game starts.
+**With Mod Sync:** Launching a pack without UUVR, turning UUVR off in your pack, or pressing `Launch Vanilla` turns UUVR's VR setting back off so Sailwind opens on your monitor. Launching a pack with UUVR turns VR back on when the game starts.
 
-If you installed through Rai Pal instead, UUVR leaves VR turned on in Sailwind's game files after you close the game. If Sailwind opens in your headset when you want to play on your monitor, run `Verify integrity of game files` in Sailwind's Steam properties. Rai Pal and Mod Sync also share `doorstop_config.ini` in your Sailwind folder, so if you switch between them, launching from Mod Sync points Steam at Mod Sync until you reinstall UUVR in Rai Pal.
+**With Rai Pal:** UUVR leaves VR turned on in Sailwind's game files after you close the game. If Sailwind opens in your headset when you want to play on your monitor, run `Verify integrity of game files` in Sailwind's Steam properties. Rai Pal and Mod Sync also share `doorstop_config.ini` in your Sailwind folder, so if you switch between them, launching from Mod Sync points Steam at Mod Sync until you reinstall UUVR in Rai Pal.
 
 ## Controls
 
@@ -53,11 +53,11 @@ Button names are for Quest Touch controllers. If `A` and `X` act like `B` and `Y
 
 Your view also recenters by itself once the main menu has loaded and again once your save has loaded.
 
-Grip a winch and use up and down on the joystick to raise/lower. Grip a wheel or tiller, then move your hand sideways or push the stick to steer, and pull `Trigger` to lock or unlock it. Grip an inventory or crate slot to take an item out, and let go of an item over a slot to put it in. Hold an item over a table, shelf or crate lid and it sits on the surface, then let go to set it down there. In the Shipyard, the right stick orbits the boat and the left stick zooms and pans. At the chart table, aim at the chart and charting tools with your laser, and press `B` or `Y` to step away.
+Grip a winch and use up and down on the joystick to raise/lower. Grip a wheel or tiller, then move your hand sideways or push the stick to steer, and pull `Trigger` to lock or unlock it. Grip an inventory or crate slot to take an item out, and let go of an item over a slot to put it in. In the Shipyard, the right stick orbits the boat and the left stick zooms and pans. At the chart table, aim at the chart and charting tools with your laser, and press `B` or `Y` to step away.
 
 ## Configuration
 
-Settings are in `BepInEx/config/com.skeptic043.sailwind.helmvr.cfg` after the first launch, or in game with [BepInEx Configuration Manager](https://github.com/BepInEx/BepInEx.ConfigurationManager) (`F1`, or `F5` in Rai Pal's Config Manager). Changes apply immediately. Below are the commonly changed settings. 
+Settings are in `BepInEx/config/com.skeptic043.sailwind.helmvr.cfg` after the first launch, or in game with Sinai's [BepInExConfigManager (Mono)](https://github.com/sinai-dev/BepInExConfigManager/releases) (`BepInExConfigManager.Mono.zip`, opened with `F5`). Use Sinai's Mono version in VR rather than standard BepInEx Configuration Manager (`F1`), because standard IMGUI menus only draw on your desktop monitor and do not appear inside the headset. Changes apply immediately. Below are the commonly changed settings.
 
 | Setting | Default | Options |
 | --- | --- | --- |
@@ -65,22 +65,44 @@ Settings are in `BepInEx/config/com.skeptic043.sailwind.helmvr.cfg` after the fi
 | `SnapTurnAngle` | `45` | Degrees per snap turn, 15 to 90. |
 | `SmoothTurnSpeed` | `200` | Degrees per second for smooth turning, 30 to 500. |
 | `HeadOrientedMovement` | `true` | Move where you're looking. Turn off to move where your body faces. |
+| `EnableHeadLeaning` | `true` | Allow 6DoF head leaning independent of your body so leaning over the gunwale does not drag the boat with you. |
+| `MaxLeanDistance` | `0.75` | Maximum horizontal head-lean distance in meters from your body (`0` = unlimited). |
 | `HeightOffset` | `0` | Raises or lowers your eye height in meters, -1 to 1. |
+| `VignetteWhileMoving` | `0` | Peripheral comfort vignette strength while moving or smooth-turning, `0` to `1` (`0` = off). |
+| `VignetteWhileAboard` | `0` | Peripheral comfort vignette strength whenever you are aboard a ship, `0` to `1` (`0` = off). |
+| `VignetteWhileStill` | `0` | Peripheral comfort vignette strength while standing still anywhere, `0` to `1` (`0` = off). |
 | `GripMode` | `ToggleAll` | `ToggleAll` (press `Grip` once to hold and again to let go), `ToggleBigItemsOnly` (toggle only for big cargo), or `Hold` (keep holding while `Grip` is down). |
 | `InvertSteering` | `false` | Reverses steering direction on wheels and tillers. |
 | `PauseButton` | `Y` | Controller button that opens the pause menu. |
-| `BoatCameraButton` | `None` | Controller button that toggles the third-person boat camera, which stays off in VR until you bind this or `BoatCameraKey`. |
-| `RecenterKey` | blank | Keyboard shortcut that recenters your view, like clicking both sticks. |
+| `BoatCameraButton` | `None` | Controller button that toggles the third-person boat camera (leave `None` to avoid accidental controller toggles). |
+| `BoatCameraKey` | `C` | Keyboard shortcut that toggles the third-person boat camera. |
+| `RecenterKey` | `F9` | Keyboard shortcut that recenters your view, like clicking both sticks. |
 | `EnableHaptics` | `true` | Controller vibration on grabs, winches and the wheel. `HapticStrength` sets how strong. |
 | `ShowHoverTooltips` | `true` | Floating item names and prices when you point at things. |
 | `ComfortSleepHorizon` | `true` | Keeps the horizon level when you lie down in a bed. |
+| `OptimizeSleepRendering` | `true` | Skips 3D world rendering while your eyes are closed during 16x sleep (keeps the sleep bar visible). |
+| `ShowSleepParticles` | `true` | Shows floating sleep particles during sleep blackout. |
 
-Keyboard shortcuts such as `BoatCameraKey` and `RecenterKey` are blank by default. Type a key name such as `F7`, add modifiers with `+` as in `LeftShift + F7`, or leave the value blank to turn the shortcut off.
+Keyboard shortcuts such as `BoatCameraKey` and `RecenterKey` accept any key name such as `F7`, add modifiers with `+` as in `LeftShift + F7`, or can be left blank to turn the shortcut off.
 
 ## Compatibility
 
-No known incompatibilities. HelmVR has been tested alongside these mods:
+No known incompatibilities. HelmVR includes built-in VR control support for these mods when installed:
 
+- [Dizzy Firewood Bundle](https://github.com/foxyv/DizzyFirewoodBundle) (Bundle Up): pull `Trigger` while holding food, firewood, or hooks aimed at a matching piece to bundle them, or pull `Trigger` empty-handed on loose items in a crate or on deck to gather them
+- [Dizzy Clothesline](https://github.com/foxyv/DizzyClothesline): pull `Trigger` empty-handed on two empty lamp hooks to tie a line, and release `Grip` while aiming along the line to hang items at your aim point
+- [Dizzy Nudge](https://github.com/foxyv/HammerNudge): while holding a hammer aimed at a nudgeable item, hold your off-hand `Trigger` and use the left stick (horizontal) and right stick up/down (vertical) to nudge, hold off-hand `Grip` to rotate, and tap `A` or click the right stick to level
+
+HelmVR has also been tested alongside these mods:
+
+- [Hooks Hang More](https://github.com/bryon82/SailwindHooksHangMore)
+- [MoreSailwindSails](https://github.com/sum-rock/MoreSailwindSails)
+- [Sail-a-dex](https://github.com/bryon82/SailwindSail-a-dex)
+- [Scrambled Seas](https://github.com/NANDbrew/scrambled-seas)
+- [Sailwind Difficulty](https://github.com/NANDbrew/SailwindDifficulty)
+- [ShipShape](https://github.com/NANDbrew/ShipShape)
+- [Voyage Recorder](https://github.com/Skeptic043/sailwind-voyage-recorder)
+- [Windicators](https://github.com/NANDbrew/Windicators)
 - [Shipyard Expansion](https://github.com/NANDbrew/ShipyardExpansion)
 - [Dizzy Sailwind Fixes](https://github.com/foxyv/dizzy_sailwind_fixes)
 - [Keevi Fixes](https://github.com/KeeviDev/SailwindKeeviFixes)

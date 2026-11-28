@@ -4,7 +4,7 @@
     <TargetFramework>netstandard2.0</TargetFramework>
     <AssemblyName>HelmVR</AssemblyName>
     <RootNamespace>HelmVR</RootNamespace>
-    <Version>0.10.4</Version>
+    <Version>0.11.0</Version>
     <Product>HelmVR</Product>
     <Description>Playable VR mode for Sailwind alongside UUVR.</Description>
     <GenerateDocumentationFile>false</GenerateDocumentationFile>
@@ -58,6 +58,10 @@
     </Reference>
     <Reference Include="UnityEngine.TextRenderingModule">
       <HintPath>$(SailwindManaged)\UnityEngine.TextRenderingModule.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+    <Reference Include="UnityEngine.ParticleSystemModule">
+      <HintPath>$(SailwindManaged)\UnityEngine.ParticleSystemModule.dll</HintPath>
       <Private>false</Private>
     </Reference>
     <Reference Include="UnityEngine.VRModule">

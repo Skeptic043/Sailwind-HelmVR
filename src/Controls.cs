@@ -50,9 +50,9 @@ namespace HelmVR
         private KeyboardShortcut _parsed = KeyboardShortcut.Empty;
         private string _lastRaw;
 
-        internal ShortcutSetting(ConfigFile config, string section, string key, string description)
+        internal ShortcutSetting(ConfigFile config, string section, string key, string description, string defaultValue = "")
         {
-            _entry = config.Bind(section, key, string.Empty, description + Help);
+            _entry = config.Bind(section, key, defaultValue, description + Help);
             _entry.SettingChanged += (_, __) => Refresh();
             Refresh();
         }
